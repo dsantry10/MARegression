@@ -73,6 +73,39 @@ log(equity value), then Strategic and Financial Services — the same signals th
 OLS flagged. With only 152 rows and many one-hot industry columns, the RF does
 not beat the simpler OLS here; it's a baseline, not a tuned model.
 
+## Random Forest on the richer dataset (1,170 deals)
+
+`ma_days_to_complete_random_forest.py` runs a Random Forest on
+`New_Training_Sheet_2.xlsx` to find which characteristics correlate with
+`Days To Complete` (raw days). Feature engineering: median-imputed numerics with
+missingness flags (Premium coerced from text; raw Sales dropped as it equals
+log Revenue), Yes/No flags mapped to 1/0, one-hot categoricals, Acquirer country
+bucketed to top-8 + Other, and the non-redundant Deal-Attribute tokens. Because
+RF importance is unsigned, the output adds a **direction** column (Spearman for
+numerics, mean-day difference for flags).
+
+Outputs: `ma_days_rf_diagnostics.pdf` and `ma_days_rf_importances.xlsx`
+(importance + direction + performance).
+
+**Fit (honest, out-of-sample):** OOB R² ≈ 0.12, 5-fold CV R² ≈ 0.14, MAE ≈ 47
+days (median deal = 81 days). Modest — completion time is largely driven by
+factors not captured here, and a 1,078-day outlier inflates RMSE.
+
+**Strongest correlates of Days To Complete:**
+
+| Feature | Direction |
+|---|---|
+| Log Equity Value | larger deals → **longer** (ρ ≈ +0.21) |
+| Log Revenue | larger targets → **longer** (ρ ≈ +0.31) |
+| Tender Offer | **~62 days shorter** |
+| Banking (industry) | **~52 days longer** |
+| Operating Margin | higher → slightly longer (ρ ≈ +0.19) |
+| Announced Premium | higher → slightly shorter (ρ ≈ −0.17) |
+
+These line up with the OLS story (tender offers close fast; bigger
+deals/financials drag on). High-importance rows with tiny n (e.g. the 3
+log-equity-missing rows) are artifacts — read low-n directions with caution.
+
 > **Caveats:** Industry groups with <5 completed deals — Insurance (1),
 > Renewable Energy (1), Media (2), Retail & Wholesale - Staples (2),
 > Utilities (2), Consumer Staple Products (4) — have wide confidence intervals;
