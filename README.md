@@ -52,6 +52,27 @@ not significant.
 Breusch-Pagan shows no significant heteroskedasticity (p ≈ 0.29); VIFs ≈ 1.0
 (no multicollinearity among continuous predictors).
 
+## Random Forest companion
+
+`ma_deal_timing_random_forest.py` fits a straightforward Random Forest (500
+trees) on the **same 152 deals and the same predictors** as the OLS, with
+categoricals one-hot encoded (reference levels dropped to match). It serves as
+a non-parametric cross-check that captures any non-linearities/interactions
+without us specifying them.
+
+Outputs: `ma_random_forest_diagnostics.pdf` (importance, predicted-vs-actual,
+residuals) and `ma_random_forest_importances.xlsx` (importances + performance).
+
+**Performance (honest, out-of-sample):** OOB R² ≈ 0.33, 5-fold CV R² ≈ 0.36,
+typical error ≈ 30 days (median deal = 96 days). In-sample R² is 0.91 — that
+gap is the usual RF overfitting, which is why OOB/CV are the numbers to read.
+The OLS in-sample R² (0.59) isn't directly comparable to the RF's OOB/CV figures.
+
+**Most predictive features (permutation importance):** Cash Tender, then
+log(equity value), then Strategic and Financial Services — the same signals the
+OLS flagged. With only 152 rows and many one-hot industry columns, the RF does
+not beat the simpler OLS here; it's a baseline, not a tuned model.
+
 > **Caveats:** Industry groups with <5 completed deals — Insurance (1),
 > Renewable Energy (1), Media (2), Retail & Wholesale - Staples (2),
 > Utilities (2), Consumer Staple Products (4) — have wide confidence intervals;
