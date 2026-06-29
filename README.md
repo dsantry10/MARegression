@@ -122,6 +122,21 @@ is ~65 days. A real-data check — 121 actual Health Care / US-buyer / Cash deal
 shows mean 75 / median 55 days, corroborating the model. Given OOB R² ≈ 0.12,
 read this as a centre-of-mass expectation, not a precise forecast.
 
+### Same profile on the prior (smaller, 2025-present) dataset
+
+`ma_simulate_profile_prior.py` runs the same profile through the **first** RF
+(152 completed deals; features = log(equity), strategic, consideration dummies,
+industry dummies; target = log days). Two caveats are structural: that model has
+**no acquirer-country or premium feature**, so "US buyer" and "no premium" can't
+be set; and Health Care + Cash are the model's *reference levels*, so the profile
+pins every feature — the simulation is a point prediction plus the 500-tree spread.
+
+**Result:** point ≈ **70 days** (tree IQR ~57–83). The 11 real Health Care / Cash
+/ strategic deals averaged 95 days (median 91), but the 3 near-$1B ones averaged
+77 — so ~70 days lines up with comparable real deals. Announcing 2026-06-29, that
+implies a close around **early September 2026**. OOB R² ≈ 0.33, so still a central
+expectation rather than a precise date.
+
 > **Caveats:** Industry groups with <5 completed deals — Insurance (1),
 > Renewable Energy (1), Media (2), Retail & Wholesale - Staples (2),
 > Utilities (2), Consumer Staple Products (4) — have wide confidence intervals;
