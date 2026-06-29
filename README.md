@@ -106,6 +106,22 @@ These line up with the OLS story (tender offers close fast; bigger
 deals/financials drag on). High-importance rows with tiny n (e.g. the 3
 log-equity-missing rows) are artifacts — read low-n directions with caution.
 
+## Profile simulation
+
+`ma_simulate_profile.py` asks the forest what a specific deal implies:
+**Health Care target, US strategic buyer, $1B equity (Log Equity = log10(1000) =
+3.0), all-cash, 0% premium, PE Buyout = No.** It fixes those attributes and
+marginalizes over everything unspecified by applying the overrides to all 1,170
+real rows and predicting (partial-dependence style), plus a single synthetic-deal
+point estimate with per-tree spread. Outputs `ma_profile_simulation.xlsx` and
+`ma_profile_simulation.pdf`.
+
+**Result:** ~**76-day median** (mean ~84), typical **68–106 day** interquartile
+range, slightly below the dataset median of 81 days. The synthetic point estimate
+is ~65 days. A real-data check — 121 actual Health Care / US-buyer / Cash deals —
+shows mean 75 / median 55 days, corroborating the model. Given OOB R² ≈ 0.12,
+read this as a centre-of-mass expectation, not a precise forecast.
+
 > **Caveats:** Industry groups with <5 completed deals — Insurance (1),
 > Renewable Energy (1), Media (2), Retail & Wholesale - Staples (2),
 > Utilities (2), Consumer Staple Products (4) — have wide confidence intervals;
