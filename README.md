@@ -150,6 +150,19 @@ announced 2026-06-29) — materially longer than the all-cash Health Care case
 (7 CD+Stock completed deals) median ~130 days, so the model sits a touch below
 the noisy small-sample actuals. Same OOB R² ≈ 0.33 caveat.
 
+`ma_simulate_profile_large2.py` runs the same kind of profile through the
+**larger** model: **Consumer Discretionary (Automobiles & Components), US strategic
+buyer, $2.431B (Log Equity = log10(2431) = 3.386), Stock, 18% premium.** This
+model *does* use premium and acquirer country, so the full profile is
+representable (the dataset has no autos-specific group, so autos map to Consumer
+Discretionary Products). Marginalized partial-dependence over all 1,170 rows.
+
+**Result:** Products (autos) ≈ **94-day median** (IQR 85–109, close ~ early Oct
+2026); Services alternate ≈ 109 days. Consistent with the prior model's ~105–107
+days for a comparable stock deal. Real comparables are tiny/noisy (CD Products +
+Stock + US buyer n=1 at 213 days), so lean on the model's central range. OOB
+R² ≈ 0.12.
+
 > **Caveats:** Industry groups with <5 completed deals — Insurance (1),
 > Renewable Energy (1), Media (2), Retail & Wholesale - Staples (2),
 > Utilities (2), Consumer Staple Products (4) — have wide confidence intervals;
