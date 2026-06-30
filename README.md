@@ -137,6 +137,19 @@ pins every feature — the simulation is a point prediction plus the 500-tree sp
 implies a close around **early September 2026**. OOB R² ≈ 0.33, so still a central
 expectation rather than a precise date.
 
+`ma_simulate_profile_prior2.py` runs a second profile on the same prior model:
+**Consumer Discretionary, US strategic buyer, $2.431B (log_equity = ln(2431) =
+7.796), Stock consideration, 18% premium.** Here Stock *is* a feature (Cash is the
+reference) and is the main driver; US buyer and the 18% premium are again not
+features of this model. The dataset splits Consumer Discretionary into Products
+and Services, so both are simulated.
+
+**Result:** ~**105–107 days** for both sub-groups (close ~ mid-October 2026 if
+announced 2026-06-29) — materially longer than the all-cash Health Care case
+(~70 days), driven by **stock consideration** plus larger size. Real comparables
+(7 CD+Stock completed deals) median ~130 days, so the model sits a touch below
+the noisy small-sample actuals. Same OOB R² ≈ 0.33 caveat.
+
 > **Caveats:** Industry groups with <5 completed deals — Insurance (1),
 > Renewable Energy (1), Media (2), Retail & Wholesale - Staples (2),
 > Utilities (2), Consumer Staple Products (4) — have wide confidence intervals;
