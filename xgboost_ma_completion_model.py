@@ -10,26 +10,23 @@ Data source
 -----------
 ``New_Training_Sheet_2.xlsx`` (sheet "Sheet1"), 1,170 completed deals.
 
-NOTE ON TWO DELIBERATE DEVIATIONS FROM THE ORIGINAL SPEC
---------------------------------------------------------
-The original brief assumed a richer schema than this file actually contains
-and asked for a strictly chronological train/test split keyed on
-``Announce_Year``. The data we were pointed at, however:
+SPLIT STRATEGY  (chronological when possible, seeded-random fallback)
+---------------------------------------------------------------------
+The brief mandates a **chronological** split on ``Announce Date``: train on
+deals announced before 2024-01-01, test on deals announced on/after that date.
+This script does exactly that **whenever an ``Announce Date`` column is
+present**.
 
-  1. Has **no date column** of any kind, so an ``Announce_Year`` chronological
-     split is impossible. Per the data owner's instruction we therefore use a
-     **seeded random split** (``RANDOM_STATE``) instead. This trades the
-     no-look-ahead guarantee for reproducibility; if/when a date column is
-     added, swap ``train_test_split`` for the chronological filter.
-  2. Is missing several columns from the brief (``Log TV``, ``TV/EBITDA``,
-     ``Acquirer Termination Fee``, ``Target Termination Fee``,
-     ``Target Industry Sector``, the raw value columns, the tickers and the
-     ``Announce Date``). Rather than hard-code, the feature schema below is
-     resolved **dynamically against whatever columns are present**, so every
-     feature from the brief that exists is treated exactly as specified, and
-     any that is absent is skipped with a printed note. The same script will
-     therefore "light up" the extra features automatically if it is ever run
-     against the fuller dataset.
+The file we were pointed at (``New_Training_Sheet_2.xlsx``), however, contains
+**no date column of any kind** (verified: 18 columns, none temporal). A
+chronological split is therefore impossible against it, so the script falls
+back to a **seeded random split** (``RANDOM_STATE``) and prints a loud notice
+when it does. The moment the data is supplied with an ``Announce Date`` column,
+the chronological path activates automatically -- no code change needed.
+
+The feature schema is likewise resolved **dynamically against whatever columns
+are present**: every feature from the brief that exists is treated exactly as
+specified, and any that is absent is skipped with a printed note.
 
 Everything else follows the brief:
   * XGBoost native NaN handling (we do NOT impute numeric NaNs).
@@ -54,7 +51,12 @@ import pandas as pd
 import shap
 import xgboost as xgb
 from sklearn.metrics import mean_absolute_error, r2_score
-from sklearn.model_selection import KFold, RandomizedSearchCV, train_test_split
+from sklearn.model_selection import (
+    KFold,
+    RandomizedSearchCV,
+    TimeSeriesSplit,
+    train_test_split,
+)
 
 matplotlib.use("Agg")  # headless: save plots to disk instead of a GUI window
 import matplotlib.pyplot as plt  # noqa: E402
@@ -68,7 +70,8 @@ INPUT_FILE = "New_Training_Sheet_2.xlsx"
 SHEET_NAME = "Sheet1"
 TARGET = "Days To Complete"
 RANDOM_STATE = 42
-TEST_SIZE = 0.20          # fraction held out as the test set
+SPLIT_DATE = "2024-01-01"  # chronological cutoff: train < this, test >= this
+TEST_SIZE = 0.20          # random-fallback fraction held out as the test set
 VALID_SIZE = 0.20         # fraction of the *training* set used for early stopping
 N_SEARCH_ITER = 25        # RandomizedSearchCV candidates
 EARLY_STOPPING_ROUNDS = 20
@@ -83,15 +86,14 @@ SHAP_PLOT = "shap_summary_top10.png"
 # FEATURE SCHEMA  (candidate lists from the brief; resolved against the file)
 # ---------------------------------------------------------------------------
 # A. Numeric features -- kept as float, NaNs are LEFT IN PLACE (no imputation).
+#    Raw "Target Sales/Revenue/Turnover" is intentionally NOT here: per the
+#    brief we model on its pre-computed log ("Log Revenue") and never use the
+#    raw and log columns together (raw revenue is in DROP_CANDIDATES below).
 NUMERIC_CANDIDATES = [
-    "Log TV",
+    "Announced Premium",
+    "Target Trailg 12 Mth Operating Margin",
     "Log Revenue",
     "Log Equity Value",
-    "Announced Premium",
-    "TV/EBITDA",
-    "Target Trailg 12 Mth Operating Margin",
-    "Acquirer Termination Fee",
-    "Target Termination Fee",
 ]
 
 # B. Binary Yes/No flags -- coerced to {0, 1} integers.
@@ -104,11 +106,11 @@ BINARY_CANDIDATES = [
     "Tender Offer",
 ]
 
-# C. Categorical features -- converted to pandas 'category' dtype for XGBoost.
+# C+D. Categorical / country features -- pandas 'category' dtype, handled
+#      natively by XGBoost (NO one-hot encoding).
 CATEGORICAL_CANDIDATES = [
     "Payment Type",
     "Nature of Bid",
-    "Target Industry Sector",
     "Target Industry Group",
     "Target Country/Region",
     "Acquirer Country/Region",
@@ -129,12 +131,12 @@ TEXT_FLAG_PATTERNS = {
     "is_Bankruptcy_Liquidation": "Bankruptcy/Liquidation",
 }
 
-# F. Columns to drop completely (identifiers + raw cols superseded by logs).
+# G. Columns to drop completely (identifiers + raw cols superseded by logs).
 DROP_CANDIDATES = [
-    "Target Ticker",
-    "Acquirer Ticker",
-    "Announced Total Value (mil.)",       # use Log TV instead
+    "Target Ticker",                      # identifier (drop if present)
+    "Acquirer Ticker",                    # identifier (drop if present)
     "Target Sales/Revenue/Turnover",      # use Log Revenue instead
+    "Announced Total Value (mil.)",       # raw value column, if present
     "Announced Equity Value (mil.)",      # use Log Equity Value instead
 ]
 
@@ -312,6 +314,77 @@ def predict_days(new_deal_dict: dict) -> float:
 
 
 # ===========================================================================
+# TRAIN / VALIDATION / TEST SPLIT
+# ===========================================================================
+def make_splits(df: pd.DataFrame, X: pd.DataFrame, y: pd.Series, schema: dict):
+    """Build train / validation / test splits and the matching CV strategy.
+
+    * If an ``Announce Date`` column exists -> **chronological** split exactly
+      as the brief mandates (train < ``SPLIT_DATE``, test >= ``SPLIT_DATE``),
+      the validation slice is the *latest* 20% of the training period, and CV
+      is a 3-fold ``TimeSeriesSplit`` (no look-ahead).
+    * Otherwise -> **seeded random** split (loud notice), with a random
+      validation slice and a shuffled 3-fold ``KFold``.
+
+    Returns
+    -------
+    (X_tr, X_val, y_tr, y_val, X_test, y_test, cv, mode)
+    """
+    if schema["has_date"] and DATE_COL in df:
+        dates = pd.to_datetime(df[DATE_COL], errors="coerce")
+        cutoff = pd.Timestamp(SPLIT_DATE)
+        train_mask = (dates < cutoff).to_numpy()
+        test_mask = (dates >= cutoff).to_numpy()
+
+        # Order the training rows by date so the validation slice / TimeSeries
+        # folds respect chronology.
+        train_order = (dates[train_mask]
+                       .sort_values()
+                       .index)
+        X_train = X.loc[train_order]
+        y_train = y.loc[train_order]
+        X_test = X.loc[test_mask]
+        y_test = y.loc[test_mask]
+
+        n_val = max(1, int(round(len(X_train) * VALID_SIZE)))
+        X_tr, X_val = X_train.iloc[:-n_val], X_train.iloc[-n_val:]
+        y_tr, y_val = y_train.iloc[:-n_val], y_train.iloc[-n_val:]
+
+        cv = TimeSeriesSplit(n_splits=3)
+        mode = f"chronological (Announce Date, cutoff {SPLIT_DATE})"
+        print(f"\nSplit — {mode}:")
+    else:
+        print("\n" + "!" * 78)
+        print(f"!! '{DATE_COL}' column NOT found -> chronological split is "
+              f"impossible.")
+        print(f"!! Falling back to a SEEDED RANDOM split (state={RANDOM_STATE}). "
+              f"Supply an")
+        print(f"!! '{DATE_COL}' column to activate the chronological split "
+              f"automatically.")
+        print("!" * 78)
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE
+        )
+        X_tr, X_val, y_tr, y_val = train_test_split(
+            X_train, y_train, test_size=VALID_SIZE, random_state=RANDOM_STATE
+        )
+        cv = KFold(n_splits=3, shuffle=True, random_state=RANDOM_STATE)
+        mode = f"seeded random (state={RANDOM_STATE})"
+        print(f"\nSplit — {mode}:")
+
+    print(f"  train     : {len(X_tr):4d} rows")
+    print(f"  validation: {len(X_val):4d} rows  (latest period / for early stopping)")
+    print(f"  test      : {len(X_test):4d} rows")
+    if len(X_test) == 0:
+        raise ValueError(
+            "Test set is empty — no deals on/after the cutoff. Check SPLIT_DATE "
+            "against the date range in the data."
+        )
+    return X_tr, X_val, y_tr, y_val, X_test, y_test, cv, mode
+
+
+# ===========================================================================
 # MAIN PIPELINE
 # ===========================================================================
 def main() -> None:
@@ -345,20 +418,10 @@ def main() -> None:
           f"feature columns.")
     print(f"Feature columns: {list(X.columns)}")
 
-    # --- 4. Split ------------------------------------------------------------
-    # NB: random seeded split -- this file has no date column, so the brief's
-    #     chronological (Announce_Year) split is not possible here.
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE
+    # --- 4. Split (chronological if a date column exists, else random) -------
+    X_tr, X_val, y_tr, y_val, X_test, y_test, cv, split_mode = make_splits(
+        df, X, y, schema
     )
-    # Carve a validation slice out of TRAIN for early stopping.
-    X_tr, X_val, y_tr, y_val = train_test_split(
-        X_train, y_train, test_size=VALID_SIZE, random_state=RANDOM_STATE
-    )
-    print(f"\nSplit (seeded random, state={RANDOM_STATE}):")
-    print(f"  train     : {len(X_tr):4d} rows")
-    print(f"  validation: {len(X_val):4d} rows  (for early stopping)")
-    print(f"  test      : {len(X_test):4d} rows")
 
     # --- 5. Hyperparameter search (MAE objective) ----------------------------
     base = xgb.XGBRegressor(
@@ -379,7 +442,7 @@ def main() -> None:
         "colsample_bytree": [0.7, 0.8, 0.9],
     }
 
-    cv = KFold(n_splits=3, shuffle=True, random_state=RANDOM_STATE)
+    # cv comes from make_splits: TimeSeriesSplit (chronological) or KFold.
     search = RandomizedSearchCV(
         estimator=base,
         param_distributions=param_dist,
@@ -392,7 +455,8 @@ def main() -> None:
         refit=True,
     )
 
-    print("\nRunning RandomizedSearchCV (3-fold) with early stopping ...")
+    print(f"\nRunning RandomizedSearchCV (3-fold {type(cv).__name__}) with "
+          f"early stopping ...")
     search.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
 
     best = search.best_estimator_
