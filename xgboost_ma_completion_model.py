@@ -66,7 +66,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 # ---------------------------------------------------------------------------
 # 0. CONFIGURATION  (the only thing you may need to edit)
 # ---------------------------------------------------------------------------
-INPUT_FILE = "New_Training_Sheet_2.xlsx"
+INPUT_FILE = "LARGE_DATASET.xlsx"
 SHEET_NAME = "Sheet1"
 TARGET = "Days To Complete"
 RANDOM_STATE = 42
@@ -86,14 +86,19 @@ SHAP_PLOT = "shap_summary_top10.png"
 # FEATURE SCHEMA  (candidate lists from the brief; resolved against the file)
 # ---------------------------------------------------------------------------
 # A. Numeric features -- kept as float, NaNs are LEFT IN PLACE (no imputation).
-#    Raw "Target Sales/Revenue/Turnover" is intentionally NOT here: per the
-#    brief we model on its pre-computed log ("Log Revenue") and never use the
-#    raw and log columns together (raw revenue is in DROP_CANDIDATES below).
+#    We model on the pre-computed logs ("Log TV/Revenue/Equity Value") and never
+#    the raw monetary columns -- those are in DROP_CANDIDATES below to avoid
+#    redundancy/multicollinearity. Any candidate absent from the file is simply
+#    skipped, so this superset is safe across datasets.
 NUMERIC_CANDIDATES = [
-    "Announced Premium",
-    "Target Trailg 12 Mth Operating Margin",
+    "Log TV",
     "Log Revenue",
     "Log Equity Value",
+    "Announced Premium",
+    "TV/EBITDA",
+    "Acquirer Termination Fee",
+    "Target Termination Fee",
+    "Target Trailg 12 Mth Operating Margin",
 ]
 
 # B. Binary Yes/No flags -- coerced to {0, 1} integers.
@@ -131,13 +136,16 @@ TEXT_FLAG_PATTERNS = {
     "is_Bankruptcy_Liquidation": "Bankruptcy/Liquidation",
 }
 
-# G. Columns to drop completely (identifiers + raw cols superseded by logs).
+# F. Columns to drop completely (identifiers + raw cols superseded by logs +
+#    redundant industry granularities). Absent ones are silently ignored.
 DROP_CANDIDATES = [
-    "Target Ticker",                      # identifier (drop if present)
-    "Acquirer Ticker",                    # identifier (drop if present)
+    "Target Ticker",                      # identifier (avoid overfitting)
+    "Acquirer Ticker",                    # identifier (avoid overfitting)
+    "Announced Total Value (mil.)",       # use Log TV instead
     "Target Sales/Revenue/Turnover",      # use Log Revenue instead
-    "Announced Total Value (mil.)",       # raw value column, if present
     "Announced Equity Value (mil.)",      # use Log Equity Value instead
+    "Target Industry Sector",             # use Target Industry Group instead
+    "Target Industry Subgroup",           # use Target Industry Group instead
 ]
 
 
