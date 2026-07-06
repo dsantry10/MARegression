@@ -87,6 +87,17 @@ DEFAULT_THRESHOLD = 180                 # 6 months -- business-meaningful defaul
 # median learner best protects out-of-time R2 on this long-tailed target.
 EXPERT_WEIGHTS = (0.30, 0.20, 0.50)
 
+# ---- Regulatory routing floor -------------------------------------------------------
+# The learned Stage-1 router under-reacts to regulatory flags (only ~14% of training
+# deals carry any flag, so it leans on year/size/industry instead). Empirically, deals
+# requiring BOTH SAMR (China) and EC (EU) clearance land in the long regime far more
+# often than the router predicts -- this profile ran a median of 140d / mean 184d in the
+# training data. We therefore floor P(long) for these deals so the long-regime expert
+# receives meaningful weight. This is a deliberate, documented business override of the
+# learned probability, not a fitted parameter.
+SAMR_EC_FLAGS = ("SAMR", "EC")   # both must be 1 for the floor to apply
+SAMR_EC_MIN_P_LONG = 0.20        # minimum routing probability when both flags are on
+
 # ---- Artifact paths ----
 ENSEMBLE_PATH = "ma_twostage_ensemble.pkl"
 PREPROCESSOR_PATH = "twostage_preprocessor.pkl"
@@ -147,9 +158,12 @@ def _hgb_classifier():
 class TwoStageEnsemble:
     """Mixture-of-experts: blended P(long) classifier gates two blended regime experts."""
 
-    def __init__(self, threshold=DEFAULT_THRESHOLD, weights=EXPERT_WEIGHTS):
+    def __init__(self, threshold=DEFAULT_THRESHOLD, weights=EXPERT_WEIGHTS,
+                 reg_floor=SAMR_EC_MIN_P_LONG):
         self.threshold = threshold
         self.weights = weights
+        # Minimum P(long) enforced for deals carrying both SAMR and EC flags.
+        self.reg_floor = reg_floor
 
     # ---- experts ----------------------------------------------------------------------
     @staticmethod
@@ -171,9 +185,18 @@ class TwoStageEnsemble:
         )
 
     # ---- stage 1 ----------------------------------------------------------------------
+    def _apply_reg_floor(self, p, X):
+        """Floor P(long) for deals requiring BOTH SAMR and EC regulatory clearance."""
+        floor = getattr(self, "reg_floor", SAMR_EC_MIN_P_LONG)
+        if floor and all(f in X.columns for f in SAMR_EC_FLAGS):
+            both_on = np.logical_and.reduce([X[f].to_numpy() == 1 for f in SAMR_EC_FLAGS])
+            p = np.where(both_on, np.maximum(p, floor), p)
+        return p
+
     def _p_long(self, X):
-        """Blended probability of the long / regulatory-review regime."""
-        return 0.5 * self.clf_xgb.predict_proba(X)[:, 1] + 0.5 * self.clf_hgb.predict_proba(X)[:, 1]
+        """Blended probability of the long / regulatory-review regime (with reg floor)."""
+        p = 0.5 * self.clf_xgb.predict_proba(X)[:, 1] + 0.5 * self.clf_hgb.predict_proba(X)[:, 1]
+        return self._apply_reg_floor(p, X)
 
     # ---- API --------------------------------------------------------------------------
     def fit(self, X, y):
