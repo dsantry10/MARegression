@@ -100,6 +100,11 @@ EXPERT_WEIGHTS = (0.30, 0.20, 0.50)
 # learned probability, not a fitted parameter.
 SAMR_EC_FLAGS = ("SAMR", "EC")   # both must be 1 for the floor to apply
 SAMR_EC_MIN_P_LONG = 0.20        # minimum routing probability when both flags are on
+# Exception: the floor does NOT apply when the acquirer is a financial sponsor
+# (PE buyout). Sponsor acquirers rarely have operating overlap with the target, so
+# SAMR/EC clearance is typically a formality rather than a substantive, timeline-
+# extending review -- flooring P(long) for them would over-predict the timeline.
+SPONSOR_EXCEPTION_COL = "PE Buyout"
 
 # ---- Artifact paths ----
 ENSEMBLE_PATH = "ma_twostage_ensemble.pkl"
@@ -189,10 +194,18 @@ class TwoStageEnsemble:
 
     # ---- stage 1 ----------------------------------------------------------------------
     def _apply_reg_floor(self, p, X):
-        """Floor P(long) for deals requiring BOTH SAMR and EC regulatory clearance."""
+        """Floor P(long) for strategic deals requiring BOTH SAMR and EC clearance.
+
+        Exception: financial-sponsor (PE buyout) acquirers are exempt -- their reviews
+        rarely involve operating overlap, so the regulatory timeline penalty does not
+        apply and the learned router's estimate is left untouched.
+        """
         floor = getattr(self, "reg_floor", SAMR_EC_MIN_P_LONG)
         if floor and all(f in X.columns for f in SAMR_EC_FLAGS):
             both_on = np.logical_and.reduce([X[f].to_numpy() == 1 for f in SAMR_EC_FLAGS])
+            if SPONSOR_EXCEPTION_COL in X.columns:
+                # Sponsor acquirers are carved out of the floor.
+                both_on = both_on & (X[SPONSOR_EXCEPTION_COL].to_numpy() != 1)
             p = np.where(both_on, np.maximum(p, floor), p)
         return p
 
