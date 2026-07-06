@@ -1,6 +1,9 @@
 """
-Two-Stage Blended-Ensemble model for M&A `Days To Complete`.
-============================================================
+Two-Stage Blended-Ensemble model for M&A `Business Days To Complete`.
+====================================================================
+
+Note: the target is in BUSINESS days (weekdays). Convert to calendar time with ~1.4x
+(7/5), or ~21.7 business days per month.
 
 This is the R2-maximizing successor to `xgboost_ma_completion_model.py`. It keeps that
 module's strict, leakage-free feature schema (imported directly, single source of truth)
@@ -356,7 +359,7 @@ def plot_shap(ensemble, X_sample, top_n=10, path=SHAP_PLOT_PATH):
 # Inference
 # --------------------------------------------------------------------------------------
 def predict_days(new_deal_dict: dict) -> float:
-    """Predict Days To Complete for a single raw deal dict (original Excel column names)."""
+    """Predict Business Days To Complete for a single raw deal dict (original Excel columns)."""
     with open(PREPROCESSOR_PATH, "rb") as fh:
         preproc = pickle.load(fh)
     with open(ENSEMBLE_PATH, "rb") as fh:

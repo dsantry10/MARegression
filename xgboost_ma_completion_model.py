@@ -1,6 +1,10 @@
 """
-XGBoost model to predict `Days To Complete` for M&A deals.
-=========================================================
+XGBoost model to predict `Business Days To Complete` for M&A deals.
+==================================================================
+
+Note: the target is measured in BUSINESS days (weekdays), not calendar days. To convert
+a prediction to calendar time, multiply by ~1.4 (7/5) or divide by ~21.7 business
+days/month.
 
 Production-grade, reproducible pipeline that:
   * Loads `LARGE_DATASET (TOGGLES).xlsx`.
@@ -51,7 +55,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 # --------------------------------------------------------------------------------------
 FILE_PATH = "LARGE_DATASET (TOGGLES).xlsx"
 SHEET_NAME = "Sheet1"
-TARGET = "Days To Complete"
+TARGET = "Business Days To Complete"
 RANDOM_STATE = 42
 
 MODEL_PATH = "xgboost_ma_model.json"
@@ -246,7 +250,7 @@ def load_dataset(file_path: str) -> tuple[pd.DataFrame, pd.Series, pd.Series]:
     X = build_features(df)
 
     # ---------------------------- Leakage / hygiene assertions ----------------------------
-    assert TARGET not in X.columns, "Target leakage: 'Days To Complete' present in X!"
+    assert TARGET not in X.columns, "Target leakage: 'Business Days To Complete' present in X!"
     for col in X.columns:
         assert not _is_banned_name(col), f"Banned column leaked into X: {col!r}"
     assert list(X.columns) == FEATURE_COLUMNS, "Feature columns diverged from schema."
@@ -412,7 +416,7 @@ def plot_shap_summary(model, X_sample, path=SHAP_PLOT_PATH, top_n=10):
 # Reusable inference
 # --------------------------------------------------------------------------------------
 def predict_days(new_deal_dict: dict) -> float:
-    """Predict `Days To Complete` for a single raw deal dictionary.
+    """Predict `Business Days To Complete` for a single raw deal dictionary.
 
     The dictionary should use the original Excel column names (e.g. 'Announce Date',
     'Payment Type', 'SAMR', 'Deal Attributes', ...). Missing keys are tolerated and
@@ -508,7 +512,7 @@ def main():
     raw = pd.read_excel(FILE_PATH, sheet_name=SHEET_NAME)
     test_row = raw[pd.to_datetime(raw["Announce Date"]).dt.year >= 2024].iloc[0].to_dict()
     predicted = predict_days(test_row)
-    print(f"  Predicted Days To Complete: {predicted:.1f} (actual: {test_row[TARGET]})")
+    print(f"  Predicted Business Days To Complete: {predicted:.1f} (actual: {test_row[TARGET]})")
 
     print("\nDone. Artifacts written; pipeline exited cleanly.")
 
