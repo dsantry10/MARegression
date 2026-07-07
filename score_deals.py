@@ -130,14 +130,16 @@ def score_deals(deals, bundle=None):
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Score M&A deal(s) with both completion-time models.")
     ap.add_argument("input", help="Path to .xlsx or .csv with one or more deals (rows).")
-    ap.add_argument("--sheet", default="Sheet1", help="Excel sheet name (default: Sheet1).")
+    ap.add_argument("--sheet", default=None,
+                    help="Excel sheet name (default: first sheet in the workbook).")
     ap.add_argument("--out", default=None, help="Optional path to write results as CSV.")
     args = ap.parse_args(argv)
 
     if args.input.lower().endswith(".csv"):
         df = pd.read_csv(args.input)
     else:
-        df = pd.read_excel(args.input, sheet_name=args.sheet)
+        # Default to the first sheet (index 0) so exports with arbitrary sheet names work.
+        df = pd.read_excel(args.input, sheet_name=args.sheet if args.sheet is not None else 0)
 
     results = score_deals(df)
     pd.set_option("display.max_columns", None, "display.width", 200)
