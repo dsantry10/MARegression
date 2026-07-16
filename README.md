@@ -167,3 +167,68 @@ R² ≈ 0.12.
 > Renewable Energy (1), Media (2), Retail & Wholesale - Staples (2),
 > Utilities (2), Consumer Staple Products (4) — have wide confidence intervals;
 > interpret with caution.
+
+---
+
+# Precedent Transaction Search
+
+`precedent_search.py` turns the `Precedent Sheet (2010-)` workbook
+(`Precedent_Sheet_2010.xlsx`, 2,532 deals ≥ $500M) into a fast, explainable
+precedent finder. Feed it a newly announced deal and it ranks every historical
+transaction on how good a comparable it is, with a plain-English reason for each
+match — no model training, no black box.
+
+## Ranking logic
+
+A transparent weighted score, in the priority order requested:
+
+| Priority | Dimension | Weight | Notes |
+|---|---|---|---|
+| **1** | Industry (Sector → Group → Subgroup) | 40 / 28 / 18 / 8 | Best hierarchy level wins: exact **subgroup** 40, same **group** 28, same **sector** 18, **adjacent** sector 8. |
+| **2** | Payment / consideration | 20 | `cash` / `stock` / `mix` / `tender`. Tender is a structure flag folded in from Deal Attributes (usually a cash tender). |
+| **3** | Strategic vs Sponsor | 14 | Sponsor = PE Buyout / Private Equity / MBO / VC tokens; else Strategic. |
+| **3a** | Size — tier | 8 | Coarse bucket: Mid ($0.5–2B) · Large ($2–10B) · Mega (>$10B). |
+| **3b** | Size — continuous | 8 | Fine log-distance gradient on Announced Total Value. |
+| mod | Cross-border (ex-Canada) | 6 | **US ↔ Canada counts as domestic**; only genuinely foreign counterparts flag cross-border. |
+| rest | EV/EBITDA · recency · completed | 2 / 2 / 1 | Used sparingly, mostly as tie-breakers. |
+
+Two rules sit outside the score:
+
+- **Same buyer → always listed.** If the acquirer has prior precedents in the
+  sheet, every one of them is surfaced in its own section and pinned to the top,
+  **even across unrelated industries** (generic placeholders like "Shareholders",
+  "Management", "Creditors" are excluded so self-tenders don't false-match).
+- **One hard veto: completely unrelated industry.** A different, non-adjacent
+  sector is dropped from the market-comps list. Nothing else is a hard filter —
+  a weak payment/size/structure match only lowers the score. Adjacency pairs
+  (e.g. Technology↔Communications, Energy↔Utilities, Financials↔Real Estate) are
+  configurable at the top of the file, as are all weights.
+
+Output is split into **Prior Deals By This Buyer** and **Closest Market
+Precedents** so you always get both the buyer's own history and the independent
+comp set.
+
+## Run
+
+```bash
+pip install pandas numpy openpyxl
+
+# Backtest / template off an existing deal in the sheet:
+python precedent_search.py --like "Whole Foods Market Inc" --top 15
+
+# Score a brand-new announced deal from scratch (+ export to Excel):
+python precedent_search.py \
+    --sector "Health Care" --group "Health Care" --subgroup "Biotech & Pharma" \
+    --payment cash --buyer-type strategic --size 8500 \
+    --acquirer "Pfizer Inc" --acquirer-country "United States" \
+    --top 20 --excel precedents.xlsx
+```
+
+Key flags: `--payment {cash,stock,mix,tender}`, `--buyer-type {strategic,sponsor}`,
+`--size` (Announced Total Value, $mil), `--acquirer` (drives the same-buyer rule),
+`--acquirer-country` / `--target-country` (derive cross-border), `--xborder yes|no`
+(force it), `--max-buyer` (cap prior-buyer deals listed), `--include-unrelated`
+(disable the industry veto to widen the net), `--excel` (write a two-tab
+workbook). `--like "<Target Name>"` builds the whole query from an existing row —
+handy for backtesting. Run `--help` for the full list. The scoring engine is also
+importable: `from precedent_search import load_corpus, DealQuery, search`.
