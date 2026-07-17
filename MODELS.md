@@ -60,7 +60,33 @@ ma_2025plus_preprocessor.pkl        # feature columns + metadata
 LARGE_DATASET_2025plus.xlsx         # convenience truncated dataset (155 rows)
 
 LARGE_DATASET (TOGGLES).xlsx        # full source dataset (target = Business Days To Complete)
+
+legacy/                             # prior 2025-present OLS/RF project — reference only
 ```
+
+---
+
+## Datasets & branch governance (anti-conflation rules)
+
+**Datasets**
+
+| File | Coverage | Used by | Rule |
+|---|---|---|---|
+| `LARGE_DATASET (TOGGLES).xlsx` | 1,170 deals, **2017–2026**, incl. SAMR/EC/CFIUS toggles | **All current models** | The single master. Edit only via value-preserving tools; verify toggles non-null after any edit. |
+| `LARGE_DATASET_2025plus.xlsx` | 155 deals, ≥2025 | 2025+ model convenience | Generated from the master — regenerate, never hand-edit. |
+| `legacy/MA_Statistics_2025-Present__Claude_Code_.xlsx`, `legacy/New_Training_Sheet_2.xlsx` | old project | `legacy/` scripts only | Never used by current models. |
+
+**Branches**
+
+| Branch | Role |
+|---|---|
+| default branch | **Canonical.** Correct master dataset + both models + scorer + docs. |
+| `claude/stacked-ensemble` | Experiment branch (stacking; documented negative result). Kept in sync with the fixed dataset. |
+| `claude/precedent-search-algo-*` | Separate precedent-search workstream. |
+| `claude/xgboost-ma-completion-model-tbz5lj` | Early standalone attempt, reference only — do not build on it. |
+
+New experiments: branch off the default branch, never off another experiment branch, so
+every model always trains on the canonical master dataset.
 
 ---
 
