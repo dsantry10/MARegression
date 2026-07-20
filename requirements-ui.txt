@@ -1,4 +1,0 @@
-# UI dependencies (in addition to requirements.txt). Install both:
-#   pip install -r requirements.txt -r requirements-ui.txt
-#   streamlit run app.py
-streamlit==1.59.2

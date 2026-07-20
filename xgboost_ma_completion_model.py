@@ -36,14 +36,13 @@ Run:
 import pickle
 import warnings
 
-import matplotlib
-
-matplotlib.use("Agg")  # headless backend so the script runs end-to-end without a display
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import shap
 import xgboost as xgb
+
+# NOTE: matplotlib and shap are imported lazily inside the plotting functions only.
+# This keeps the import chain for build_features (used by the UI and score_deals) light,
+# so deploying the app requires only pandas/numpy/scikit-learn/xgboost/openpyxl.
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, r2_score
 from sklearn.model_selection import RandomizedSearchCV, TimeSeriesSplit
 
@@ -373,6 +372,10 @@ def evaluate(model, X_test, y_test, label="model"):
 # --------------------------------------------------------------------------------------
 def plot_feature_importance(model, path=IMPORTANCE_PLOT_PATH, top_n=15):
     """Print + plot the top-N features by gain."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
     booster = model.get_booster()
     gain = booster.get_score(importance_type="gain")
     imp = (
@@ -396,6 +399,10 @@ def plot_feature_importance(model, path=IMPORTANCE_PLOT_PATH, top_n=15):
 
 def plot_shap_summary(model, X_sample, path=SHAP_PLOT_PATH, top_n=10):
     """Beeswarm SHAP summary for the top features."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import shap
     print("\nComputing SHAP values ...")
     try:
         explainer = shap.TreeExplainer(model)

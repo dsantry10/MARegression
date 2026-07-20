@@ -47,14 +47,12 @@ Run:
 import pickle
 import warnings
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import shap
 import xgboost as xgb
+
+# matplotlib and shap are imported lazily inside the plotting functions only, so importing
+# this module (e.g. for the TwoStageEnsemble class or predict path) stays lightweight.
 from sklearn.ensemble import (
     HistGradientBoostingClassifier,
     HistGradientBoostingRegressor,
@@ -329,6 +327,9 @@ def report_out_of_time(model, X, y, announce_year):
 # --------------------------------------------------------------------------------------
 def plot_importance(ensemble, top_n=15, path=IMPORTANCE_PLOT_PATH):
     """Aggregate gain importance across both regime XGB (log-squared) experts."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
     short = ensemble.expert_short["xgb_log"].get_booster().get_score(importance_type="gain")
     long = ensemble.expert_long["xgb_log"].get_booster().get_score(importance_type="gain")
     ws = 1.0 - ensemble._fitted_long_rate
@@ -354,6 +355,10 @@ def plot_importance(ensemble, top_n=15, path=IMPORTANCE_PLOT_PATH):
 
 def plot_shap(ensemble, X_sample, top_n=10, path=SHAP_PLOT_PATH):
     """SHAP beeswarm for the short-regime expert (the bulk of deals)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import shap
     print("\nComputing SHAP values (short-regime expert, majority of deals) ...")
     try:
         explainer = shap.TreeExplainer(ensemble.expert_short["xgb_log"])

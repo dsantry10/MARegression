@@ -3,15 +3,29 @@
 A Streamlit app that runs the two-stage XGBoost model (short/long regime experts) on a
 single deal via a streamlined form, and surfaces the critical takeaways.
 
-## Run
+## Run locally
 
 ```bash
-pip install -r requirements.txt -r requirements-ui.txt
+pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Opens a local web app (default http://localhost:8501). It is a **local/hosted server
-app**, not a static page — it must run Python to execute the pickled model.
+Opens a local web app (default http://localhost:8501). It is a **server app**, not a
+static page — it must run Python to execute the pickled model.
+
+## Host it online (no local install) — Streamlit Community Cloud
+
+1. Go to **share.streamlit.io** and sign in with your **GitHub** account.
+2. Click **Create app → Deploy a public app from GitHub**.
+3. Repository: `dsantry10/maregression` · Branch: `claude/model-ui` · Main file: `app.py`.
+4. Open **Advanced settings** and set **Python version = 3.11** (so the pinned wheels
+   resolve).
+5. Click **Deploy**. First build takes a few minutes; afterward you get a permanent URL to
+   bookmark.
+
+`requirements.txt` is intentionally lean (streamlit, pandas, numpy, scikit-learn, xgboost,
+openpyxl) so the deploy is fast and reliable. Retraining/plot extras (`shap`, `matplotlib`)
+live in `requirements-dev.txt` and are **not** needed to run the app.
 
 ## Inputs (streamlined)
 

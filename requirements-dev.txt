@@ -1,0 +1,5 @@
+# Extra dependencies for retraining and regenerating diagnostic plots (not needed to run
+# the app). Install alongside requirements.txt:
+#   pip install -r requirements.txt -r requirements-dev.txt
+shap==0.51.0
+matplotlib==3.11.0

@@ -1,9 +1,12 @@
-# Pinned dependencies for the M&A completion-time models (score_deals.py and training).
-# Install with:  pip install -r requirements.txt
+# Dependencies to run the app (and score_deals.py). This is the single file the
+# Streamlit Community Cloud installer reads. Pins match the environment the model
+# artifacts (.pkl) were created in, so they load correctly.
+#
+# Deploy tip: on Streamlit Community Cloud, set Python to 3.11 in "Advanced settings"
+# so these pinned wheels resolve.
+streamlit==1.59.2
 pandas==3.0.3
 numpy==2.4.6
 scikit-learn==1.9.0
 xgboost==3.2.0
-shap==0.51.0
-matplotlib==3.11.0
 openpyxl==3.1.5
