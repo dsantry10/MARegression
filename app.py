@@ -22,6 +22,17 @@ st.caption("Two-stage XGBoost ensemble (short/long regime experts) — predicts 
 # Input form (left) -- streamlined; blanks are treated as unknown (NaN).
 # --------------------------------------------------------------------------- #
 with st.sidebar:
+    st.header("Model")
+    variant = st.radio(
+        "Payment-type treatment",
+        options=list(um.MODELS.keys()),
+        index=list(um.MODELS.keys()).index(um.DEFAULT_VARIANT),
+        format_func=lambda v: um.MODELS[v]["label"],
+        help="Two separate models. 'Stock-consolidated' collapses any stock-containing "
+             "consideration (Cash and Stock, Cash or Stock, Stock) to a single 'Stock' "
+             "category before predicting.",
+    )
+
     st.header("Deal inputs")
 
     with st.expander("Basics", expanded=True):
@@ -35,7 +46,7 @@ with st.sidebar:
                                   min_value=0.0, value=0.0, step=10.0)
 
     with st.expander("Terms", expanded=True):
-        payment_type = st.selectbox("Payment type", um.known_categories("Payment Type"))
+        payment_type = st.selectbox("Payment type", um.known_categories("Payment Type", variant))
         premium = st.number_input("Announced premium (%)", value=20.0, step=1.0)
         tv_ebitda = st.number_input("TV / EBITDA (0 = unknown)", min_value=0.0, value=0.0, step=1.0)
         operating_margin = st.number_input("Target op. margin (%) — leave 0 if unknown",
@@ -43,14 +54,14 @@ with st.sidebar:
 
     with st.expander("Classification", expanded=True):
         industry_group = st.selectbox("Target industry group",
-                                      um.known_categories("Target Industry Group"))
-        countries = um.known_categories("Target Country/Region")
-        acq_countries = um.known_categories("Acquirer Country/Region")
+                                      um.known_categories("Target Industry Group", variant))
+        countries = um.known_categories("Target Country/Region", variant)
+        acq_countries = um.known_categories("Acquirer Country/Region", variant)
         tci = countries.index("United States") if "United States" in countries else 0
         aci = acq_countries.index("United States") if "United States" in acq_countries else 0
         target_country = st.selectbox("Target country", countries, index=tci)
         acquirer_country = st.selectbox("Acquirer country", acq_countries, index=aci)
-        nature_of_bid = st.selectbox("Nature of bid", um.known_categories("Nature of Bid"))
+        nature_of_bid = st.selectbox("Nature of bid", um.known_categories("Nature of Bid", variant))
 
     with st.expander("Toggles", expanded=True):
         c1, c2 = st.columns(2)
@@ -95,12 +106,14 @@ if not run:
             "(the model handles missing values natively).")
     st.stop()
 
-deal, warnings = um.build_deal_dict(inputs)
-res = um.predict(deal)
+deal, warnings = um.build_deal_dict(inputs, variant)
+res = um.predict(deal, variant)
 close = um.estimated_close_date(inputs["announce_date"], res["weighted"])
 
 for w in warnings:
     st.warning(w)
+
+st.caption(f"Model: **{res['variant_label']}**")
 
 # --- Headline ---
 st.subheader("Weighted close expectation")
@@ -155,7 +168,7 @@ else:
 
 # --- Comparators ---
 st.subheader("Historical comparators")
-comp = um.comparators(deal)
+comp = um.comparators(deal, variant)
 if comp["rows"]:
     df = pd.DataFrame(comp["rows"]).rename(
         columns={"filter": "Comparator set", "n": "N", "median": "Median (bd)", "mean": "Mean (bd)"})

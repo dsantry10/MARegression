@@ -42,6 +42,19 @@ Conveniences:
 - Industry labels are normalized to the training vocabulary (e.g. `Real Estate REIT` →
   `Real Estate`) and any unknown category raises a visible warning.
 
+## Model selector
+
+The sidebar has a **Model** switch offering two *separate* trained models:
+
+- **Standard** — payment types as reported (`ma_twostage_ensemble.pkl`).
+- **Stock-consolidated** (default on this branch) — any stock-containing consideration
+  (Cash and Stock, Cash or Stock, Stock) collapsed to a single `Stock` category
+  (`ma_twostage_stockpay_ensemble.pkl`).
+
+They are distinct artifacts and never conflated; the active model is labeled above the
+result. The Payment-type dropdown reflects the chosen model's vocabulary (4 options for
+stock-consolidated, 6 for standard).
+
 ## Outputs (critical takeaways)
 
 - **Weighted close expectation** — business days, calendar days, months, and an estimated

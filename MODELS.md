@@ -6,6 +6,7 @@ any deal to get **two clean, comparable data points**.
 | Model | Trained on | Algorithm | CV R² | Best for |
 |---|---|---|---|---|
 | **full_history** | full 2017–2026 dataset (~1,170 deals) | Two-stage blended XGBoost ensemble (mixture-of-experts + regulatory routing) | 0.276 CV / 0.26 out-of-time | Large, complex, cross-border, or regulatory (SAMR/EC/CFIUS) deals |
+| **stock_consolidated** | same, payment types with any stock collapsed to "Stock" | Same two-stage architecture, separate artifacts | 0.272 CV / 0.272 out-of-time | Same, when you want all stock/mixed consideration treated as one "Stock" category |
 | **recent_2025+** | deals announced 2025 onward (155 deals) | RandomForest + ExtraTrees bagged blend | 0.242 CV | Present-day, smaller, non-regulatory deals |
 
 Both share **one leakage-free preprocessing definition** (`build_features` in

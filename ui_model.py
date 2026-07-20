@@ -1,12 +1,18 @@
 """
 UI model layer: streamlined-inputs -> deal dict -> two-stage XGBoost prediction.
 
-Thin wrapper over the existing model so the UI never re-implements anything:
-  * derives Log TV / Log Revenue / Log Equity from the dollar inputs,
-  * normalizes common category labels (fixes silent-mislabel skew, e.g. the
-    "Real Estate REIT" export label) and reports unknown categories,
-  * returns the two-stage experts (short / long), P(long), the weighted blend,
-    whether the SAMR+EC regulatory floor fired, and the 2025+ cross-check.
+Variant-aware: the same code serves two SEPARATE, independently trained models via a
+registry (no conflation — each has its own artifacts):
+
+  * "standard"  -> ma_twostage_ensemble.pkl          (payment types as-is)
+  * "stockpay"  -> ma_twostage_stockpay_ensemble.pkl  (any stock-containing payment
+                    collapsed to "Stock")
+
+Thin wrapper over the existing model so the UI never re-implements anything: derives
+Log TV/Revenue/Equity from dollar inputs, normalizes category labels (fixes the
+"Real Estate REIT" silent-mislabel), collapses payment for the stockpay variant, and
+returns the two-stage experts (short/long), P(long), the weighted blend, floor status,
+and the 2025+ recency cross-check.
 """
 from __future__ import annotations
 
@@ -22,13 +28,28 @@ import ma_completion_twostage_ensemble as tse  # registers TwoStageEnsemble for 
 BUSINESS_DAYS_PER_CAL = 7 / 5
 BUSINESS_DAYS_PER_MONTH = 21.7
 
-FULL_MODEL_PATH = "ma_twostage_ensemble.pkl"
-FULL_PREP_PATH = "twostage_preprocessor.pkl"
+# The 2025+ recency cross-check model is shared (standard payment) across variants.
 RECENT_MODEL_PATH = "ma_2025plus_model.pkl"
 RECENT_PREP_PATH = "ma_2025plus_preprocessor.pkl"
 DATASET_PATH = "LARGE_DATASET (TOGGLES).xlsx"
 
-# Common export labels -> the category the model was trained on.
+# Model registry -- each variant is a fully separate trained artifact set.
+MODELS = {
+    "standard": {
+        "label": "Standard — payment types as reported",
+        "model": "ma_twostage_ensemble.pkl",
+        "prep": "twostage_preprocessor.pkl",
+        "collapse_stock_payment": False,
+    },
+    "stockpay": {
+        "label": "Stock-consolidated — any stock consideration treated as Stock",
+        "model": "ma_twostage_stockpay_ensemble.pkl",
+        "prep": "twostage_stockpay_preprocessor.pkl",
+        "collapse_stock_payment": True,
+    },
+}
+DEFAULT_VARIANT = "stockpay"
+
 INDUSTRY_ALIASES = {
     "real estate reit": "Real Estate",
     "reit": "Real Estate",
@@ -36,23 +57,49 @@ INDUSTRY_ALIASES = {
 }
 
 
+def _collapse_payment(df: pd.DataFrame) -> pd.DataFrame:
+    """Map any stock-containing Payment Type to 'Stock' (stockpay variant)."""
+    out = df.copy()
+    if "Payment Type" in out.columns:
+        pt = out["Payment Type"].astype("string")
+        out.loc[pt.str.contains("Stock", case=False, na=False), "Payment Type"] = "Stock"
+    return out
+
+
+@functools.lru_cache(maxsize=4)
+def _load(variant: str):
+    cfg = MODELS[variant]
+    with open(cfg["prep"], "rb") as fh:
+        prep = pickle.load(fh)
+    with open(cfg["model"], "rb") as fh:
+        model = pickle.load(fh)
+    return model, prep, cfg
+
+
 @functools.lru_cache(maxsize=1)
-def _load():
-    with open(FULL_PREP_PATH, "rb") as fh:
-        full_prep = pickle.load(fh)
-    with open(FULL_MODEL_PATH, "rb") as fh:
-        full_model = pickle.load(fh)
+def _load_recent():
     with open(RECENT_PREP_PATH, "rb") as fh:
         recent_prep = pickle.load(fh)
     with open(RECENT_MODEL_PATH, "rb") as fh:
         recent_model = pickle.load(fh)
-    return full_model, full_prep, recent_model, recent_prep
+    return recent_model, recent_prep
 
 
-def known_categories(field: str) -> list[str]:
-    """Sorted list of category values the model recognizes for a categorical field."""
-    _, full_prep, _, _ = _load()
-    return sorted(full_prep["categories"][field].categories.tolist())
+def _prep_features(df: pd.DataFrame, variant: str) -> pd.DataFrame:
+    """Build the feature matrix for a variant (with payment collapse if required)."""
+    _, prep, cfg = _load(variant)
+    src = _collapse_payment(df) if cfg["collapse_stock_payment"] else df
+    X = build_features(src, categories=prep["categories"])[prep["feature_columns"]]
+    for c in prep["categorical_features"]:
+        X[c] = X[c].astype(prep["categories"][c])
+    return X
+
+
+def known_categories(field: str, variant: str = DEFAULT_VARIANT) -> list[str]:
+    """Category values the model recognizes for a field (reflects the variant's vocab,
+    e.g. the collapsed Payment Type list for the stockpay model)."""
+    _, prep, _ = _load(variant)
+    return sorted(prep["categories"][field].categories.tolist())
 
 
 def _log10_or_nan(value) -> float:
@@ -63,11 +110,10 @@ def _log10_or_nan(value) -> float:
         return np.nan
 
 
-def normalize_industry(value: str):
-    """Return (normalized_value, warning_or_None) for the target industry group."""
+def normalize_industry(value: str, variant: str = DEFAULT_VARIANT):
     if value is None:
         return value, None
-    known = set(known_categories("Target Industry Group"))
+    known = set(known_categories("Target Industry Group", variant))
     if value in known:
         return value, None
     alias = INDUSTRY_ALIASES.get(str(value).strip().lower())
@@ -77,10 +123,10 @@ def normalize_industry(value: str):
                    f"treated as missing and weaken the estimate.")
 
 
-def build_deal_dict(inp: dict) -> tuple[dict, list[str]]:
+def build_deal_dict(inp: dict, variant: str = DEFAULT_VARIANT) -> tuple[dict, list[str]]:
     """Map streamlined UI inputs to a raw deal dict; return (deal, warnings)."""
     warnings: list[str] = []
-    industry, warn = normalize_industry(inp.get("industry_group"))
+    industry, warn = normalize_industry(inp.get("industry_group"), variant)
     if warn:
         warnings.append(warn)
 
@@ -88,7 +134,6 @@ def build_deal_dict(inp: dict) -> tuple[dict, list[str]]:
     equity_value = inp.get("equity_value")
     revenue = inp.get("revenue")
 
-    # Auto-suggest cross-border from a country mismatch unless the user overrode it.
     tc, ac = inp.get("target_country"), inp.get("acquirer_country")
     cross_border = inp.get("cross_border")
     if cross_border is None and tc and ac:
@@ -133,32 +178,31 @@ def build_deal_dict(inp: dict) -> tuple[dict, list[str]]:
     return deal, warnings
 
 
-def predict(deal: dict) -> dict:
-    """Run the two-stage model + 2025+ cross-check. Returns a results dict."""
-    full_model, full_prep, recent_model, recent_prep = _load()
+def predict(deal: dict, variant: str = DEFAULT_VARIANT) -> dict:
+    """Run the selected two-stage model + shared 2025+ recency cross-check."""
+    model, _, _ = _load(variant)
     df = pd.DataFrame([deal])
+    X = _prep_features(df, variant)
 
-    X = build_features(df, categories=full_prep["categories"])[full_prep["feature_columns"]]
-    for c in full_prep["categorical_features"]:
-        X[c] = X[c].astype(full_prep["categories"][c])
+    p_long = float(model._p_long(X)[0])
+    short = float(model._predict_expert(model.expert_short, X)[0])
+    long = float(model._predict_expert(model.expert_long, X)[0])
+    weighted = float(model.predict(X)[0])
 
-    p_long = float(full_model._p_long(X)[0])
-    short = float(full_model._predict_expert(full_model.expert_short, X)[0])
-    long = float(full_model._predict_expert(full_model.expert_long, X)[0])
-    weighted = float(full_model.predict(X)[0])
-
-    # Did the SAMR+EC regulatory floor fire (with PE-sponsor exception)?
     floor_applied = (
         int(deal.get("SAMR", 0)) == 1
         and int(deal.get("EC", 0)) == 1
         and deal.get("PE Buyout") != "Yes"
     )
 
-    # 2025+ cross-check.
+    # 2025+ recency cross-check (standard payment features).
+    recent_model, recent_prep = _load_recent()
     Xr = build_features(df)[recent_prep["feature_columns"]]
     recent = float(recent_model.predict(Xr)[0])
 
     return {
+        "variant": variant,
+        "variant_label": MODELS[variant]["label"],
         "p_long": p_long,
         "short": short,
         "long": long,
@@ -171,7 +215,6 @@ def predict(deal: dict) -> dict:
 
 
 def estimated_close_date(announce_date, business_days: float):
-    """Add business_days to announce_date, returning a pandas Timestamp."""
     try:
         start = pd.Timestamp(announce_date)
         return start + pd.tseries.offsets.BusinessDay(int(round(business_days)))
@@ -184,9 +227,15 @@ def _dataset():
     return pd.read_excel(DATASET_PATH, sheet_name="Sheet1")
 
 
-def comparators(deal: dict) -> dict:
-    """Median/mean close time of nearest historical deals, tightening the filter."""
+def comparators(deal: dict, variant: str = DEFAULT_VARIANT) -> dict:
+    """Median/mean close time of nearest historical deals, tightening the filter.
+
+    For the stockpay variant the dataset's payment types are collapsed the same way so the
+    comparator subset matches the model's view of the deal.
+    """
     d = _dataset()
+    if MODELS[variant]["collapse_stock_payment"]:
+        d = _collapse_payment(d)
     target = "Business Days To Complete"
     y = d[target]
     ig = deal.get("Target Industry Group")
@@ -196,10 +245,12 @@ def comparators(deal: dict) -> dict:
     if ig in set(d["Target Industry Group"]):
         base = d["Target Industry Group"] == ig
         cuts.append((f"Industry = {ig}", base))
-    if deal.get("Payment Type") in set(d["Payment Type"].dropna()):
-        m = base & (d["Payment Type"] == deal["Payment Type"])
+    pay = _collapse_payment(pd.DataFrame([deal]))["Payment Type"].iloc[0] \
+        if MODELS[variant]["collapse_stock_payment"] else deal.get("Payment Type")
+    if pay in set(d["Payment Type"].dropna()):
+        m = base & (d["Payment Type"] == pay)
         if m.sum() >= 5:
-            cuts.append((f"+ {deal['Payment Type']}", m))
+            cuts.append((f"+ {pay}", m))
             base = m
     for col, key, label in [("Going Private", "Going Private", "Going Private"),
                             ("PE Buyout", "PE Buyout", "PE Buyout"),
